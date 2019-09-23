@@ -807,6 +807,9 @@ else ()
          subdir: consensus
     #]===============================]
     src/test/consensus/ByzantineFailureSim_test.cpp
+    src/test/consensus/ByzantineFailureSim1_test.cpp
+    src/test/consensus/ByzantineSensitivitySim_test.cpp
+    #src/test/consensus/ByzantineFailureSim2_test.cpp
     src/test/consensus/Consensus_test.cpp
     src/test/consensus/DistributedValidatorsSim_test.cpp
     src/test/consensus/LedgerTiming_test.cpp

@@ -123,6 +123,91 @@ makeSubmitter(
             dist, start ,end, sel, s, g);
 }
 
+
+
+/** Injects transactions to a specified peer
+
+    Injects successive transactions beginning at start, then spaced according
+    to succesive calls of distribution(), until stop.
+
+    @tparam Distribution is a `UniformRandomBitGenerator` from the STL that
+            is used by random distributions to generate random samples
+    @tparam Generator is an object with member
+
+            T operator()(Generator &g)
+
+            which generates the delay T in SimDuration units to the next
+            transaction. For the current definition of SimDuration, this is
+            currently the number of nanoseconds. Submitter internally casts
+            arithmetic T to SimDuration::rep units to allow using standard
+            library distributions as a Distribution.
+*/
+template <class Distribution, class Generator, class Selector>
+class Injector
+{
+    Distribution dist_;
+    SimTime stop_;
+    std::uint32_t nextID_ = 0;
+    Selector selector_;
+    Scheduler & scheduler_;
+    Generator & g_;
+
+    // Convert generated durations to SimDuration
+    static SimDuration
+    asDuration(SimDuration d)
+    {
+        return d;
+    }
+
+    template <class T>
+    static
+    std::enable_if_t<std::is_arithmetic<T>::value, SimDuration>
+    asDuration(T t)
+    {
+        return SimDuration{static_cast<SimDuration::rep>(t)};
+    }
+
+    void
+    inject()
+    {
+        auto mptr=selector_();
+        mptr->txInjections.emplace(
+                    ptr->lastClosedLedger.seq(),Tx{nextID_++});
+        if (scheduler_.now() < stop_)
+        {
+            scheduler_.in(asDuration(dist_(g_)), [&]() { inject(); });
+        }
+    }
+
+public:
+    Injector(
+        Distribution dist,
+        SimTime start,
+        SimTime end,
+        Selector & selector,
+        Scheduler & s,
+        Generator & g)
+        : dist_{dist}, stop_{end}, selector_{selector}, scheduler_{s}, g_{g}
+    {
+        scheduler_.at(start, [&]() { inject(); });
+    }
+};
+
+template <class Distribution, class Generator, class Selector>
+Injector<Distribution, Generator, Selector>
+makeInjector(
+    Distribution dist,
+    SimTime start,
+    SimTime end,
+    Selector& sel,
+    Scheduler& s,
+    Generator& g)
+{
+    return Injector<Distribution, Generator, Selector>(
+            dist, start ,end, sel, s, g);
+}
+
+
 }  // namespace csf
 }  // namespace test
 }  // namespace ripple

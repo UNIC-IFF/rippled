@@ -24,3 +24,5 @@
 #include <test/consensus/LedgerTrie_test.cpp>
 #include <test/consensus/ScaleFreeSim_test.cpp>
 #include <test/consensus/Validations_test.cpp>
+
+#include <test/consensus/ByzantineSensitivitySim_test.cpp>
