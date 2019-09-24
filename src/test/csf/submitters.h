@@ -257,8 +257,8 @@ class SybilianInjector
         std::uint32_t txid=nextID_++;
         while (mptr!=selector_.end())
         {
-            mptr->txInjections.emplace(
-                    mptr->lastClosedLedger.seq(),Tx{txid});
+            (*mptr)->txInjections.emplace(
+                    (*mptr)->lastClosedLedger.seq(),Tx{txid});
 
             advance(mptr,1);
         }
