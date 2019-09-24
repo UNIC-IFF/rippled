@@ -28,6 +28,230 @@ namespace test {
 class ByzantineSensitivitySim_test : public beast::unit_test::suite
 {
 
+    void
+    SybilianSensitivitySim_ovUNL(
+        std::size_t numPeers,
+        std::size_t numByzantines,
+        float overlapping_factor,
+        csf::SimDuration delay = std::chrono::milliseconds(200),
+        bool printHeaders = false)
+    {//std::random_device myrng=std::default_random_engine{2})
+        using namespace csf;
+        using namespace std::chrono;
+
+        // Initialize persistent collector logs specific to this method
+        std::string const prefix =
+                "SybilianSensitivity__"
+                "varyingUNLoverlapping";
+        std::fstream
+                txLog(prefix + "_tx.csv", std::ofstream::app),
+                ledgerLog(prefix + "_ledger.csv", std::ofstream::app);
+
+        // title
+        log << prefix << "(" << numPeers << ","<< numByzantines << ","<< overlapping_factor << "," << delay.count() << ")"
+            << std::endl;
+
+        // number of peers, UNLs, connections
+        int const numCNLs    = std::max(int(1.00 * numPeers), 1);
+        int const maxCNLSize = std::max(int(0.50 * numCNLs),  1);
+        int const minCNLSize = std::max(int(overlapping_factor * maxCNLSize),  std::max(int(0.25*numCNLs),1));
+        int const commonUNLSize = overlapping_factor*maxCNLSize;
+
+        log << "test1"<<std::endl;
+
+        BEAST_EXPECT(numPeers >= 1);
+        BEAST_EXPECT(numCNLs >= 1);
+        log << "test1"<<std::endl;
+        BEAST_EXPECT(1 <= minCNLSize
+                && minCNLSize <= maxCNLSize
+                && minCNLSize >= commonUNLSize
+                && maxCNLSize <= numPeers);
+        log << "test1"<<std::endl;
+
+        Sim sim;
+        
+        PeerGroup normalValidators= sim.createGroup(numPeers-numByzantines);
+        PeerGroup byzantines;
+        PeerGroup network;
+
+        if (numByzantines>0)
+        {
+            byzantines= sim.createGroup(numByzantines);
+            network = normalValidators + byzantines;
+        }
+        else
+        {
+            network= normalValidators;
+        }
+        
+
+        log << "test2"<<std::endl;
+
+        // form common UNL
+        PeerGroup commonUNL;
+
+        // Create Normal Peer Selector
+        std::vector<double> const normalRanks=
+                sample(normalValidators.size(), PowerLawDistribution{1,3}, sim.rng);
+        auto normalPeerSelector=
+                makeSelector(normalValidators.begin(),
+                                normalValidators.end(),
+                                normalRanks, sim.rng);
+
+        for (int i=0; i<commonUNLSize*(1-(numByzantines/numPeers));i++)
+        {
+            commonUNL=commonUNL + normalPeerSelector();
+        }
+        
+        
+        // Create Random Byzantine Peer Selector
+        std::vector<double> const byzantineRanks=
+                sample(byzantines.size(), PowerLawDistribution{1,3}, sim.rng);
+        
+        
+        auto byzantinePeerSelector=
+                makeSelector(byzantines.begin(),
+                                byzantines.end(),
+                                byzantineRanks, sim.rng);
+        
+        for (int i=0; i<commonUNLSize*(numByzantines/numPeers);i++)
+        {
+            commonUNL=commonUNL + byzantinePeerSelector();
+        }
+        
+        
+
+        // Create Random Peer Selector from all the network
+        std::vector<double> const peerRanks=
+                sample(network.size(), PowerLawDistribution{1,3}, sim.rng);
+        auto networkPeerSelector=
+                makeSelector(network.begin(), network.end(), peerRanks, sim.rng);
+
+        // auto rng = std::default_random_engine{2};
+        // std::shuffle(std::begin(mvector),std::end(mvector),rng);
+
+        // std::vector<int> const UNLsizes=
+        //         sample(network.size(), std::uniform_int_distribution{minCNLSize,maxCNLSize},sim.rng);
+        std::default_random_engine myrng;
+        std::uniform_int_distribution mydist (minCNLSize-commonUNLSize,maxCNLSize-commonUNLSize);
+
+        for (auto ptr=network.begin();ptr!=network.end();advance(ptr,1))
+        {
+            // get a random number for UNL size of the peer.
+            int extrapeers= mydist(myrng);
+            int normalExtrapeers=(1-(numByzantines/numPeers))*extrapeers;
+            int addedpeers=0;
+            PeerGroup tmpUNL=commonUNL;
+            PeerGroup tmpGroup= PeerGroup(*ptr);
+            // ptr->connectandtrust(commonUNL);
+            // ptr->connect(commonUNL);
+            // ptr->trust(commonUNL);
+            while (addedpeers<normalExtrapeers)
+            {
+                auto rp=normalPeerSelector();
+                // check if in commonUNL
+                
+                if (tmpUNL.contains(rp))
+                {
+                    continue;
+                }
+                // ptr->connectandtrust(PeerGroup(rp));
+                tmpUNL=tmpUNL+PeerGroup(rp);
+                addedpeers++;
+            }
+
+            while (addedpeers<extrapeers)
+            {
+                auto rp=byzantinePeerSelector();
+                // check if in commonUNL
+                
+                if (tmpUNL.contains(rp))
+                {
+                    continue;
+                }
+                // ptr->connectandtrust(PeerGroup(rp));
+                tmpUNL=tmpUNL+PeerGroup(rp);
+                addedpeers++;
+            }
+            
+            tmpGroup.trustAndConnect(tmpUNL,delay);
+        }
+
+        // Initialize the data collectors
+        TxCollector txCollector;
+        LedgerCollector ledgerCollector;
+        auto colls = makeCollectors(txCollector, ledgerCollector);
+        sim.collectors.add(colls);
+
+        sim.run(1);
+
+
+        // Run for 10 minues, submitting 100 tx/second
+        std::chrono::nanoseconds const simDuration = 2min;//10min;
+        std::chrono::nanoseconds const quiet = 10s;
+        Rate const rate{100, 1000ms};
+
+        // Initialize timers
+        HeartbeatTimer heart(sim.scheduler);
+
+        // txs, start/stop/step, target
+        auto txSubmitter = makeSubmitter(ConstantDistribution{rate.inv()},
+                                     sim.scheduler.now() + quiet,
+                                     sim.scheduler.now() + simDuration - quiet,
+                                     normalPeerSelector,
+                                     sim.scheduler,
+                                     sim.rng);
+        // auto txSubmitter = makeSubmitter(ConstantDistribution{rate.inv()},
+        //                              sim.scheduler.now() + quiet,
+        //                              sim.scheduler.now() + simDuration - quiet,
+        //                              normalPeerSelector,
+        //                              sim.scheduler,
+        //                              sim.rng);
+        //// Byzantine transaction injector
+        // auto txInjector = makeInjector(ConstantDistribution{rate.inv()},
+        //                             sim.scheduler.now()+ quiet,
+        //                             sim.scheduler.now()+ simDuration -quiet,
+        //                             byzantinePeerSelector,
+        //                             sim.scheduler,
+        //                             sim.rng);
+
+        //// Sybilian transaction injector
+        auto txInjector = makeSybilianInjector(ConstantDistribution{rate.inv()},
+                                    sim.scheduler.now()+ quiet,
+                                    sim.scheduler.now()+ simDuration -quiet,
+                                    byzantines,
+                                    sim.scheduler,
+                                    sim.rng);
+                                    
+        // run simulation for given duration
+        heart.start();
+        sim.run(simDuration);
+
+        log << std::right;
+        log << "| Peers: "<< std::setw(2) << numPeers;
+        log << " | Byzantines: "<< std::setw(2) << numByzantines ;
+        log << " | UNL overlapping: " << std::setw(2) << overlapping_factor << std::endl;
+        log << "| Duration: " << std::setw(2)
+            << duration_cast<milliseconds>(simDuration).count() << " ms";
+        log << " | Branches: " << std::setw(1) << sim.branches();
+        log << " | Synchronized: " << std::setw(1)
+            << (sim.synchronized() ? "Y" : "N");
+        log << " |" << std::endl;
+
+        
+        txCollector.report(simDuration, log, true);
+        ledgerCollector.report(simDuration, log, false);
+
+        std::string const tag = "\"( "+ std::to_string(numPeers) + 
+                            ","+std::to_string(numByzantines)+ ","+
+                             std::to_string(overlapping_factor) +")\"";
+
+        txCollector.csv(simDuration, txLog, tag, printHeaders);
+        ledgerCollector.csv(simDuration, ledgerLog, tag, printHeaders);
+
+        log << std::endl;
+    }
+
     /**
          * Plan for this simulator
          * 1) Read the parameters from a file OR IDEALY from the command line arguments
