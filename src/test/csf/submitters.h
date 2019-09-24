@@ -172,7 +172,7 @@ class Injector
     {
         auto mptr=selector_();
         mptr->txInjections.emplace(
-                    ptr->lastClosedLedger.seq(),Tx{nextID_++});
+                    mptr->lastClosedLedger.seq(),Tx{nextID_++});
         if (scheduler_.now() < stop_)
         {
             scheduler_.in(asDuration(dist_(g_)), [&]() { inject(); });
@@ -206,6 +206,96 @@ makeInjector(
     return Injector<Distribution, Generator, Selector>(
             dist, start ,end, sel, s, g);
 }
+
+
+/** Injects transactions to a specified peer
+
+    Injects successive transactions beginning at start, then spaced according
+    to succesive calls of distribution(), until stop.
+
+    @tparam Distribution is a `UniformRandomBitGenerator` from the STL that
+            is used by random distributions to generate random samples
+    @tparam Generator is an object with member
+
+            T operator()(Generator &g)
+
+            which generates the delay T in SimDuration units to the next
+            transaction. For the current definition of SimDuration, this is
+            currently the number of nanoseconds. Submitter internally casts
+            arithmetic T to SimDuration::rep units to allow using standard
+            library distributions as a Distribution.
+*/
+template <class Distribution, class Generator, class PeerGroup>
+class SybilianInjector
+{
+    Distribution dist_;
+    SimTime stop_;
+    std::uint32_t nextID_ = 0;
+    PeerGroup selector_;
+    Scheduler & scheduler_;
+    Generator & g_;
+
+    // Convert generated durations to SimDuration
+    static SimDuration
+    asDuration(SimDuration d)
+    {
+        return d;
+    }
+
+    template <class T>
+    static
+    std::enable_if_t<std::is_arithmetic<T>::value, SimDuration>
+    asDuration(T t)
+    {
+        return SimDuration{static_cast<SimDuration::rep>(t)};
+    }
+
+    void
+    inject()
+    {
+        auto mptr=selector_.begin();
+        std::uint32_t txid=nextID_++;
+        while (mptr!=selector_.end())
+        {
+            mptr->txInjections.emplace(
+                    mptr->lastClosedLedger.seq(),Tx{txid});
+
+            advance(mptr,1);
+        }
+        if (scheduler_.now() < stop_)
+        {
+            scheduler_.in(asDuration(dist_(g_)), [&]() { inject(); });
+        }
+    }
+
+public:
+    SybilianInjector(
+        Distribution dist,
+        SimTime start,
+        SimTime end,
+        PeerGroup & selector,
+        Scheduler & s,
+        Generator & g)
+        : dist_{dist}, stop_{end}, selector_{selector}, scheduler_{s}, g_{g}
+    {
+        scheduler_.at(start, [&]() { inject(); });
+    }
+};
+
+template <class Distribution, class Generator, class PeerGroup>
+SybilianInjector<Distribution, Generator, PeerGroup>
+makeSybilianInjector(
+    Distribution dist,
+    SimTime start,
+    SimTime end,
+    PeerGroup& sel,
+    Scheduler& s,
+    Generator& g)
+{
+    return SybilianInjector<Distribution, Generator, PeerGroup>(
+            dist, start ,end, sel, s, g);
+}
+
 
 
 }  // namespace csf
