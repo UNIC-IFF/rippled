@@ -20,6 +20,7 @@
 #include <ripple/beast/unit_test.h>
 #include <test/csf.h>
 #include <utility>
+#include <random>
 
 namespace ripple {
 namespace test {
@@ -45,9 +46,9 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         std::size_t numPeers,
         std::size_t numByzantines,
         float overlapping_factor,
-        std::chrono::milliseconds delay = std::chrono::milliseconds(200),
+        csf::SimDuration delay = std::chrono::milliseconds(200),
         bool printHeaders = false)
-    {
+    {//std::random_device myrng=std::default_random_engine{2})
         using namespace csf;
         using namespace std::chrono;
 
@@ -69,19 +70,35 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         int const minCNLSize = std::max(int(overlapping_factor * maxCNLSize),  std::max(int(0.25*numCNLs),1));
         int const commonUNLSize = overlapping_factor*maxCNLSize;
 
+        log << "test1"<<std::endl;
+
         BEAST_EXPECT(numPeers >= 1);
         BEAST_EXPECT(numCNLs >= 1);
+        log << "test1"<<std::endl;
         BEAST_EXPECT(1 <= minCNLSize
                 && minCNLSize <= maxCNLSize
                 && minCNLSize >= commonUNLSize
                 && maxCNLSize <= numPeers);
+        log << "test1"<<std::endl;
 
         Sim sim;
         
         PeerGroup normalValidators= sim.createGroup(numPeers-numByzantines);
-        PeerGroup byzantines= sim.createGroup(numByzantines);
+        PeerGroup byzantines;
+        PeerGroup network;
+
+        if (numByzantines>0)
+        {
+            byzantines= sim.createGroup(numByzantines);
+            network = normalValidators + byzantines;
+        }
+        else
+        {
+            network= normalValidators;
+        }
         
-        PeerGroup network = normalValidators + byzantines;
+
+        log << "test2"<<std::endl;
 
         // form common UNL
         PeerGroup commonUNL;
@@ -114,6 +131,8 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         {
             commonUNL=commonUNL + byzantinePeerSelector();
         }
+        
+        
 
         // Create Random Peer Selector from all the network
         std::vector<double> const peerRanks=
@@ -126,17 +145,17 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
 
         // std::vector<int> const UNLsizes=
         //         sample(network.size(), std::uniform_int_distribution{minCNLSize,maxCNLSize},sim.rng);
-        auto myrng=std::default_random_engine{2};
-        auto mydist=std::uniform_int_distribution{minCNLSize-commonUNLSize,maxCNLSize-commonUNLSize};
+        std::default_random_engine myrng;
+        std::uniform_int_distribution mydist (minCNLSize-commonUNLSize,maxCNLSize-commonUNLSize);
 
         for (auto ptr=network.begin();ptr!=network.end();advance(ptr,1))
         {
             // get a random number for UNL size of the peer.
-            int extrapeers=myrng(mydist);
+            int extrapeers= mydist(myrng);
             int normalExtrapeers=(1-(numByzantines/numPeers))*extrapeers;
             int addedpeers=0;
             PeerGroup tmpUNL=commonUNL;
-            PeerGroup tmpGroup= PeerGroup(ptr);
+            PeerGroup tmpGroup= PeerGroup(*ptr);
             // ptr->connectandtrust(commonUNL);
             // ptr->connect(commonUNL);
             // ptr->trust(commonUNL);
@@ -168,7 +187,7 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
                 addedpeers++;
             }
             
-            tmpGroup.connectandtrust(tmpUNL,delay);
+            tmpGroup.trustAndConnect(tmpUNL,delay);
         }
 
         // Initialize the data collectors
@@ -203,7 +222,7 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         //                              sim.rng);
         auto txInjector = makeInjector(ConstantDistribution{rate.inv()},
                                     sim.scheduler.now()+ quiet,
-                                    sim.scheduler.now()+ SimDuration-quiet,
+                                    sim.scheduler.now()+ simDuration -quiet,
                                     byzantinePeerSelector,
                                     sim.scheduler,
                                     sim.rng);
@@ -274,15 +293,15 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         // std::chrono::milliseconds const delay(delayCount);
 
         log << "ByzantineSensitivitySim: " << totalNumValidators << " Peers" << std::endl;
-        log << std::setw(10) << "Min Byzantines: " << mintotalByzantines << " Max Byzantines: " << maxtotalByzantines << std::endl;
-        log << std::setw(10) << "Min UNL overlapping: " << minUNLoverlappingRatio<< " Max UNL overlapping: " << maxUNLoverlappingRatio << std::endl;
+        log << std::setw(4) << "Min Byzantines: " << mintotalByzantines << " Max Byzantines: " << maxtotalByzantines << " sim step: " << byzantines_step << std::endl;
+        log << std::setw(4) << "Min UNL overlapping: " << minUNLoverlappingRatio << " Max UNL overlapping: " << maxUNLoverlappingRatio << "sim step: "<< ovUNL_step << std::endl;
         
         bool printHeaders=true;
         for (int bi=mintotalByzantines; bi<=maxtotalByzantines; bi+=byzantines_step)
         {
             for (float ovUNL=minUNLoverlappingRatio; ovUNL<=maxUNLoverlappingRatio; ovUNL+=ovUNL_step)
             {
-
+                log << "Starting..." << std::endl;
                 ByzantineSensitivitySim_ovUNL(totalNumValidators,bi,ovUNL,delay, printHeaders);
                 printHeaders=false;
             }
