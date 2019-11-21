@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2012, 2013 Ripple Labs Inc.
+    Copyright (c) 2019 Ripple Labs Inc.
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,50 +17,24 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_RPC_CONTEXT_H_INCLUDED
-#define RIPPLE_RPC_CONTEXT_H_INCLUDED
-
-#include <ripple/core/Config.h>
-#include <ripple/core/JobQueue.h>
-#include <ripple/net/InfoSub.h>
-#include <ripple/rpc/Role.h>
-
-#include <ripple/beast/utility/Journal.h>
+#include <test/jtx/acctdelete.h>
+#include <ripple/protocol/jss.h>
 
 namespace ripple {
+namespace test {
+namespace jtx {
 
-class Application;
-class NetworkOPs;
-class LedgerMaster;
-
-namespace RPC {
-
-/** The context of information needed to call an RPC. */
-struct Context
+// Delete account.  If successful transfer remaining XRP to dest.
+Json::Value
+acctdelete (jtx::Account const& account, jtx::Account const& dest)
 {
-    /**
-     * Data passed in from HTTP headers.
-     */
-    struct Headers
-    {
-        boost::string_view user;
-        boost::string_view forwardedFor;
-    };
+    Json::Value jv;
+    jv[sfAccount.jsonName] = account.human();
+    jv[sfDestination.jsonName] = dest.human();
+    jv[sfTransactionType.jsonName] = jss::AccountDelete;
+    return jv;
+}
 
-    beast::Journal j;
-    Json::Value params;
-    Application& app;
-    Resource::Charge& loadType;
-    NetworkOPs& netOps;
-    LedgerMaster& ledgerMaster;
-    Resource::Consumer& consumer;
-    Role role;
-    std::shared_ptr<JobQueue::Coro> coro {};
-    InfoSub::pointer infoSub {};
-    Headers headers {};
-};
-
-} // RPC
+} // jtx
+} // test
 } // ripple
-
-#endif

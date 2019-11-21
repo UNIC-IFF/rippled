@@ -47,9 +47,6 @@ buildLedgerImpl(
 {
     auto built = std::make_shared<Ledger>(*parent, closeTime);
 
-    if (built->rules().enabled(featureSHAMapV2) && !built->stateMap().is_v2())
-        built->make_v2();
-
     // Set up to write SHAMap changes to our database,
     //   perform updates, extract changes
 
@@ -154,6 +151,9 @@ applyTransactions(
             << (certainRetry ? "Pass: " : "Final pass: ") << pass
             << " completed (" << changes << " changes)";
 
+        // Accumulate changes.
+        count += changes;
+
         // A non-retry pass made no changes
         if (!changes && !certainRetry)
             break;
@@ -196,7 +196,7 @@ buildLedger(
             auto const applied = applyTransactions(app, built, txns,
                 failedTxns, accum, j);
 
-            if (txns.size() || txns.size())
+            if (!txns.empty() || !failedTxns.empty())
                 JLOG(j.debug())
                     << "Applied " << applied << " transactions; "
                     << failedTxns.size() << " failed and "

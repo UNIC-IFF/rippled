@@ -84,7 +84,6 @@ detail::supportedAmendments ()
     // uncommented at that time).
     static std::vector<std::string> const supported
     {
-//        "SHAMapV2",
         "MultiSign",
 //        "Tickets",
         "TrustSetAuth",
@@ -119,6 +118,8 @@ detail::supportedAmendments ()
         "fixTakerDryOfferRemoval",
         "fixMasterKeyAsRegularKey",
         "fixCheckThreading",
+        "fixPayChanRecipientOwnerDir",
+        "DeletableAccounts",
     };
     return supported;
 }
@@ -147,7 +148,6 @@ uint256 const featureTickets = *getRegisteredFeature("Tickets");
 uint256 const featureTrustSetAuth = *getRegisteredFeature("TrustSetAuth");
 uint256 const featureOwnerPaysFee = *getRegisteredFeature("OwnerPaysFee");
 uint256 const featureCompareFlowV1V2 = *getRegisteredFeature("CompareFlowV1V2");
-uint256 const featureSHAMapV2 = *getRegisteredFeature("SHAMapV2");
 uint256 const featurePayChan = *getRegisteredFeature("PayChan");
 uint256 const featureFlow = *getRegisteredFeature("Flow");
 uint256 const featureCompareTakerFlowCross = *getRegisteredFeature("CompareTakerFlowCross");
@@ -177,5 +177,7 @@ uint256 const featureMultiSignReserve = *getRegisteredFeature("MultiSignReserve"
 uint256 const fixTakerDryOfferRemoval = *getRegisteredFeature("fixTakerDryOfferRemoval");
 uint256 const fixMasterKeyAsRegularKey = *getRegisteredFeature("fixMasterKeyAsRegularKey");
 uint256 const fixCheckThreading = *getRegisteredFeature("fixCheckThreading");
+uint256 const fixPayChanRecipientOwnerDir = *getRegisteredFeature("fixPayChanRecipientOwnerDir");
+uint256 const featureDeletableAccounts = *getRegisteredFeature("DeletableAccounts");
 
 } // ripple

@@ -43,6 +43,7 @@ namespace jss {
 
 JSS ( AL_hit_rate );                // out: GetCounts
 JSS ( Account );                    // in: TransactionSign; field.
+JSS ( AccountDelete );              // transaction type.
 JSS ( AccountRoot );                // ledger type.
 JSS ( AccountSet );                 // transaction type.
 JSS ( Amendments );                 // ledger type.
@@ -126,6 +127,8 @@ JSS ( authorized );                 // out: AccountLines
 JSS ( auth_change );                // out: AccountInfo
 JSS ( auth_change_queued );         // out: AccountInfo
 JSS ( available );                  // out: ValidatorList
+JSS ( avg_bps_recv );               // out: Peers
+JSS ( avg_bps_sent );               // out: Peers
 JSS ( balance );                    // out: AccountLines
 JSS ( balances );                   // out: GatewayBalances
 JSS ( base );                       // out: LogLevel
@@ -180,6 +183,7 @@ JSS ( dbKBLedger );                 // out: getCounts
 JSS ( dbKBTotal );                  // out: getCounts
 JSS ( dbKBTransaction );            // out: getCounts
 JSS ( debug_signing );              // in: TransactionSign
+JSS ( deletion_blockers_only );     // in: AccountObjects
 JSS ( delivered_amount );           // out: insertDeliveredAmount
 JSS ( deposit_authorized );         // out: deposit_authorized
 JSS ( deposit_preauth );            // in: AccountObjects, LedgerData
@@ -322,7 +326,7 @@ JSS ( marker );                     // in/out: AccountTx, AccountOffers,
                                     //         AccountLines, AccountObjects,
                                     //         LedgerData
                                     // in: BookOffers
-JSS ( master_key );                 // out: WalletPropose
+JSS ( master_key );                 // out: WalletPropose, NetworkOPs
 JSS ( master_seed );                // out: WalletPropose
 JSS ( master_seed_hex );            // out: WalletPropose
 JSS ( master_signature );           // out: pubManifest
@@ -338,6 +342,7 @@ JSS ( metaData );
 JSS ( metadata );                   // out: TransactionEntry
 JSS ( method );                     // RPC
 JSS ( methods );
+JSS ( metrics );                    // out: Peers
 JSS ( min_count );                  // in: GetCounts
 JSS ( min_ledger );                 // in: LedgerCleaner
 JSS ( minimum_fee );                // out: TxQ
@@ -489,6 +494,8 @@ JSS ( timeouts );                   // out: InboundLedger
 JSS ( traffic );                    // out: Overlay
 JSS ( total );                      // out: counters
 JSS ( totalCoins );                 // out: LedgerToJson
+JSS ( total_bytes_recv );           // out: Peers
+JSS ( total_bytes_sent );           // out: Peers
 JSS ( total_coins );                // out: LedgerToJson
 JSS ( transTreeHash );              // out: ledger/Ledger.cpp
 JSS ( transaction );                // in: Tx

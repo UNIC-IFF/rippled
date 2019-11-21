@@ -22,6 +22,7 @@
 #include <test/jtx/WSClient_test.cpp>
 
 #include <test/jtx/impl/Account.cpp>
+#include <test/jtx/impl/acctdelete.cpp>
 #include <test/jtx/impl/amount.cpp>
 #include <test/jtx/impl/balance.cpp>
 #include <test/jtx/impl/check.cpp>

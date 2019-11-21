@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <ripple/basics/chrono.h>
+#include <ripple/ledger/Directory.h>
 #include <ripple/protocol/Feature.h>
 #include <ripple/protocol/Indexes.h>
 #include <ripple/protocol/jss.h>
@@ -44,6 +45,20 @@ struct PayChan_test : public beast::unit_test::suite
             return beast::zero;
         auto const k = keylet::payChan (account, dst, (*sle)[sfSequence] - 1);
         return k.key;
+    }
+
+
+    static
+    std::pair<uint256, std::shared_ptr<SLE const>>
+    channelKeyAndSle(ReadView const& view,
+               jtx::Account const& account,
+               jtx::Account const& dst)
+    {
+        auto const sle = view.read (keylet::account (account));
+        if (!sle)
+            return {};
+        auto const k = keylet::payChan (account, dst, (*sle)[sfSequence] - 1);
+        return {k.key, view.read(k)};
     }
 
     static Buffer
@@ -863,7 +878,8 @@ struct PayChan_test : public beast::unit_test::suite
         Env env (*this);
         auto const alice = Account ("alice");
         auto const bob = Account ("bob");
-        env.fund (XRP (10000), alice, bob);
+        auto const charlie = Account("charlie", KeyType::ed25519);
+        env.fund (XRP (10000), alice, bob, charlie);
         auto const pk = alice.pk ();
         auto const settleDelay = 3600s;
         auto const channelFunds = XRP (1000);
@@ -1022,6 +1038,63 @@ struct PayChan_test : public beast::unit_test::suite
             }
         }
         {
+            // Try to explicitly specify secp256k1 and Ed25519 keys:
+            env (create (charlie, alice, channelFunds, settleDelay, charlie.pk()));
+            env.close();
+
+            auto const chan = to_string (channel (*env.current (), charlie, alice));
+
+            std::string cpk;
+            {
+                auto const r =
+                    env.rpc ("account_channels", charlie.human (), alice.human ());
+                BEAST_EXPECT (r[jss::result][jss::channels].size () == 1);
+                BEAST_EXPECT (r[jss::result][jss::channels][0u][jss::channel_id] == chan);
+                BEAST_EXPECT (r[jss::result][jss::validated]);
+                cpk = r[jss::result][jss::channels][0u][jss::public_key].asString();
+            }
+
+            // Try to authorize without specifying a key type, expect an error:
+            auto const rs =
+                env.rpc ("channel_authorize", "charlie", chan, "1000");
+            auto const sig = rs[jss::result][jss::signature].asString ();
+            BEAST_EXPECT (!sig.empty ());
+            {
+                auto const rv = env.rpc(
+                    "channel_verify", cpk, chan, "1000", sig);
+                BEAST_EXPECT(!rv[jss::result][jss::signature_verified].asBool());
+            }
+
+            // Try to authorize using an unknown key type, except an error:
+            auto const rs1 =
+                env.rpc ("channel_authorize", "charlie", "nyx", chan, "1000");
+            BEAST_EXPECT(rs1[jss::error] == "badKeyType");
+
+            // Try to authorize using secp256k1; the authorization _should_
+            // succeed but the verification should fail:
+            auto const rs2 =
+                env.rpc ("channel_authorize", "charlie", "secp256k1", chan, "1000");
+            auto const sig2 = rs2[jss::result][jss::signature].asString ();
+            BEAST_EXPECT (!sig2.empty ());
+            {
+                auto const rv = env.rpc(
+                    "channel_verify", cpk, chan, "1000", sig2);
+                BEAST_EXPECT(!rv[jss::result][jss::signature_verified].asBool());
+            }
+
+            // Try to authorize using Ed25519; expect success:
+            auto const rs3 =
+                env.rpc ("channel_authorize", "charlie", "ed25519", chan, "1000");
+            auto const sig3 = rs3[jss::result][jss::signature].asString ();
+            BEAST_EXPECT (!sig3.empty ());
+            {
+                auto const rv = env.rpc(
+                    "channel_verify", cpk, chan, "1000", sig3);
+                BEAST_EXPECT(rv[jss::result][jss::signature_verified].asBool());
+            }
+        }
+
+        {
             // send malformed amounts rpc requests
             auto rs = env.rpc("channel_authorize", "alice", chan1Str, "1000x");
             BEAST_EXPECT(rs[jss::error] == "channelAmtMalformed");
@@ -1029,6 +1102,81 @@ struct PayChan_test : public beast::unit_test::suite
             BEAST_EXPECT(rs[jss::error] == "channelAmtMalformed");
             rs = env.rpc("channel_authorize", "alice", chan1Str, "x");
             BEAST_EXPECT(rs[jss::error] == "channelAmtMalformed");
+            {
+                // Missing channel_id
+                Json::Value args {Json::objectValue};
+                args[jss::amount] = "2000";
+                args[jss::key_type] = "secp256k1";
+                args[jss::passphrase] = "passphrase_can_be_anything";
+                rs = env.rpc ("json",
+                    "channel_authorize", args.toStyledString())[jss::result];
+                BEAST_EXPECT(rs[jss::error] == "invalidParams");
+            }
+            {
+                // Missing amount
+                Json::Value args {Json::objectValue};
+                args[jss::channel_id] = chan1Str;
+                args[jss::key_type] = "secp256k1";
+                args[jss::passphrase] = "passphrase_can_be_anything";
+                rs = env.rpc ("json",
+                    "channel_authorize", args.toStyledString())[jss::result];
+                BEAST_EXPECT(rs[jss::error] == "invalidParams");
+            }
+            {
+                // Missing key_type and no secret.
+                Json::Value args {Json::objectValue};
+                args[jss::amount] = "2000";
+                args[jss::channel_id] = chan1Str;
+                args[jss::passphrase] = "passphrase_can_be_anything";
+                rs = env.rpc ("json",
+                    "channel_authorize", args.toStyledString())[jss::result];
+                BEAST_EXPECT(rs[jss::error] == "invalidParams");
+            }
+            {
+                // Both passphrase and seed specified.
+                Json::Value args {Json::objectValue};
+                args[jss::amount] = "2000";
+                args[jss::channel_id] = chan1Str;
+                args[jss::key_type] = "secp256k1";
+                args[jss::passphrase] = "passphrase_can_be_anything";
+                args[jss::seed] = "seed can be anything";
+                rs = env.rpc ("json",
+                    "channel_authorize", args.toStyledString())[jss::result];
+                BEAST_EXPECT(rs[jss::error] == "invalidParams");
+            }
+            {
+                // channel_id is not exact hex.
+                Json::Value args {Json::objectValue};
+                args[jss::amount] = "2000";
+                args[jss::channel_id] = chan1Str + "1";
+                args[jss::key_type] = "secp256k1";
+                args[jss::passphrase] = "passphrase_can_be_anything";
+                rs = env.rpc ("json",
+                    "channel_authorize", args.toStyledString())[jss::result];
+                BEAST_EXPECT(rs[jss::error] == "channelMalformed");
+            }
+            {
+                //amount is not a string
+                Json::Value args {Json::objectValue};
+                args[jss::amount] = 2000;
+                args[jss::channel_id] = chan1Str;
+                args[jss::key_type] = "secp256k1";
+                args[jss::passphrase] = "passphrase_can_be_anything";
+                rs = env.rpc ("json",
+                    "channel_authorize", args.toStyledString())[jss::result];
+                BEAST_EXPECT(rs[jss::error] == "channelAmtMalformed");
+            }
+            {
+                // Amount is not a decimal string.
+                Json::Value args {Json::objectValue};
+                args[jss::amount] = "TwoThousand";
+                args[jss::channel_id] = chan1Str;
+                args[jss::key_type] = "secp256k1";
+                args[jss::passphrase] = "passphrase_can_be_anything";
+                rs = env.rpc ("json",
+                    "channel_authorize", args.toStyledString())[jss::result];
+                BEAST_EXPECT(rs[jss::error] == "channelAmtMalformed");
+            }
         }
     }
 
@@ -1137,21 +1285,361 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
-    run () override
+    testMetaAndOwnership()
     {
-        testSimple ();
-        testCancelAfter ();
-        testSettleDelay ();
-        testExpiration ();
-        testCloseDry ();
-        testDefaultAmount ();
-        testDisallowXRP ();
-        testDstTag ();
-        testDepositAuth ();
-        testMultiple ();
-        testRPC ();
-        testOptionalFields ();
-        testMalformedPK ();
+        testcase("Metadata & Ownership");
+
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const settleDelay = 100s;
+        auto const pk = alice.pk();
+
+        auto inOwnerDir = [](ReadView const& view,
+                             Account const& acc,
+                             std::shared_ptr<SLE const> const& chan) -> bool {
+            ripple::Dir const ownerDir(view, keylet::ownerDir(acc.id()));
+            return std::find(ownerDir.begin(), ownerDir.end(), chan) != ownerDir.end();
+        };
+
+        auto ownerDirCount = [](ReadView const& view,
+                                Account const& acc) -> std::size_t
+        {
+            ripple::Dir const ownerDir(view, keylet::ownerDir(acc.id()));
+            return std::distance(ownerDir.begin(), ownerDir.end());
+        };
+
+        {
+            // Test without adding the paychan to the recipient's owner
+            // directory
+            Env env(
+                *this, supported_amendments() - fixPayChanRecipientOwnerDir);
+            env.fund (XRP (10000), alice, bob);
+            env(create(alice, bob, XRP(1000), settleDelay, pk));
+            env.close();
+            auto const [chan, chanSle] = channelKeyAndSle(*env.current(), alice, bob);
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
+            // close the channel
+            env(claim(bob, chan), txflags(tfClose));
+            BEAST_EXPECT(!channelExists(*env.current(), chan));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
+        }
+
+        {
+            // Test with adding the paychan to the recipient's owner directory
+            Env env(*this, supported_amendments());
+            env.fund (XRP (10000), alice, bob);
+            env(create(alice, bob, XRP(1000), settleDelay, pk));
+            env.close();
+            auto const [chan, chanSle] = channelKeyAndSle(*env.current(), alice, bob);
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(inOwnerDir(*env.current(), bob, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 1);
+            // close the channel
+            env(claim(bob, chan), txflags(tfClose));
+            BEAST_EXPECT(!channelExists(*env.current(), chan));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
+        }
+
+        {
+            // Test removing paychans created before adding to the recipient's
+            // owner directory
+            Env env(
+                *this, supported_amendments() - fixPayChanRecipientOwnerDir);
+            env.fund (XRP (10000), alice, bob);
+            // create the channel before the amendment activates
+            env(create(alice, bob, XRP(1000), settleDelay, pk));
+            env.close();
+            auto const [chan, chanSle] = channelKeyAndSle(*env.current(), alice, bob);
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 1);
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
+            env.enableFeature(fixPayChanRecipientOwnerDir);
+            env.close();
+            BEAST_EXPECT(
+                env.current()->rules().enabled(fixPayChanRecipientOwnerDir));
+            // These checks look redundant, but if you don't `close` after the
+            // `create` these checks will fail. I believe this is due to the
+            // create running with one set of amendments initially, then with a
+            // different set with the ledger closes (tho I haven't dug into it)
+            BEAST_EXPECT(inOwnerDir(*env.current(), alice, chanSle));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
+
+            // close the channel after the amendment activates
+            env(claim(bob, chan), txflags(tfClose));
+            BEAST_EXPECT(!channelExists(*env.current(), chan));
+            BEAST_EXPECT(!inOwnerDir(*env.current(), alice, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), alice) == 0);
+            BEAST_EXPECT(!inOwnerDir(*env.current(), bob, chanSle));
+            BEAST_EXPECT(ownerDirCount(*env.current(), bob) == 0);
+        }
+    }
+
+    void
+    testAccountDelete()
+    {
+        testcase("Account Delete");
+        using namespace test::jtx;
+        using namespace std::literals::chrono_literals;
+        auto rmAccount = [this](
+                             Env& env,
+                             Account const& toRm,
+                             Account const& dst,
+                             TER expectedTer = tesSUCCESS) {
+            // only allow an account to be deleted if the account's sequence
+            // number is at least 256 less than the current ledger sequence
+            for (auto minRmSeq = env.seq(toRm) + 257;
+                env.current()->seq() < minRmSeq;
+                env.close())
+            { }
+
+            env(acctdelete(toRm, dst),
+                fee(drops(env.current()->fees().increment)),
+                ter(expectedTer));
+            env.close();
+            this->BEAST_EXPECT(
+                isTesSuccess(expectedTer) ==
+                !env.closed()->exists(keylet::account(toRm.id())));
+        };
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+
+        for (bool const withOwnerDirFix : {false, true})
+        {
+            auto const amd = withOwnerDirFix
+                ? supported_amendments()
+                : supported_amendments() - fixPayChanRecipientOwnerDir;
+            Env env{*this, amd};
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
+            auto const feeDrops = env.current()->fees().base;
+
+            // Create a channel from alice to bob
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            env(create(alice, bob, XRP(1000), settleDelay, pk));
+            env.close();
+            auto const chan = channel(*env.current(), alice, bob);
+            BEAST_EXPECT(channelBalance(*env.current(), chan) == XRP(0));
+            BEAST_EXPECT(channelAmount(*env.current(), chan) == XRP(1000));
+
+            rmAccount(env, alice, carol, tecHAS_OBLIGATIONS);
+            // can only remove bob if the channel isn't in their owner direcotry
+            rmAccount(
+                env,
+                bob,
+                carol,
+                withOwnerDirFix ? TER(tecHAS_OBLIGATIONS) : TER(tesSUCCESS));
+
+            auto chanBal = channelBalance(*env.current(), chan);
+            auto chanAmt = channelAmount(*env.current(), chan);
+            BEAST_EXPECT(chanBal == XRP(0));
+            BEAST_EXPECT(chanAmt == XRP(1000));
+
+            auto preBob = env.balance(bob);
+            auto const delta = XRP(50);
+            auto reqBal = chanBal + delta;
+            auto authAmt = reqBal + XRP(100);
+            assert(reqBal <= chanAmt);
+
+            // claim should fail if the dst was removed
+            if (withOwnerDirFix)
+            {
+                env(claim(alice, chan, reqBal, authAmt));
+                env.close();
+                BEAST_EXPECT(channelBalance(*env.current(), chan) == reqBal);
+                BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
+                BEAST_EXPECT(env.balance(bob) == preBob + delta);
+                chanBal = reqBal;
+            }
+            else
+            {
+                auto const preAlice = env.balance(alice);
+                env(claim(alice, chan, reqBal, authAmt), ter(tecNO_DST));
+                env.close();
+                BEAST_EXPECT(channelBalance(*env.current(), chan) == chanBal);
+                BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
+                BEAST_EXPECT(env.balance(bob) == preBob);
+                BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops);
+            }
+
+            // fund should fail if the dst was removed
+            if (withOwnerDirFix)
+            {
+                auto const preAlice = env.balance(alice);
+                env(fund(alice, chan, XRP(1000)));
+                env.close();
+                BEAST_EXPECT(
+                    env.balance(alice) == preAlice - XRP(1000) - feeDrops);
+                BEAST_EXPECT(
+                    channelAmount(*env.current(), chan) == chanAmt + XRP(1000));
+                chanAmt = chanAmt + XRP(1000);
+            }
+            else
+            {
+                auto const preAlice = env.balance(alice);
+                env(fund(alice, chan, XRP(1000)), ter(tecNO_DST));
+                env.close();
+                BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops);
+                BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
+            }
+
+            {
+                // Owner closes, will close after settleDelay
+                env(claim(alice, chan), txflags(tfClose));
+                env.close();
+                // settle delay hasn't ellapsed. Channels should exist.
+                BEAST_EXPECT(channelExists(*env.current(), chan));
+                auto const closeTime = env.current()->info().parentCloseTime;
+                auto const minExpiration = closeTime + settleDelay;
+                env.close(minExpiration);
+                env(claim(alice, chan), txflags(tfClose));
+                BEAST_EXPECT(!channelExists(*env.current(), chan));
+            }
+        }
+
+        {
+            // test resurrected account
+            Env env{*this,
+                    supported_amendments() - fixPayChanRecipientOwnerDir};
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
+            auto const feeDrops = env.current()->fees().base;
+
+            // Create a channel from alice to bob
+            auto const pk = alice.pk();
+            auto const settleDelay = 100s;
+            env(create(alice, bob, XRP(1000), settleDelay, pk));
+            env.close();
+            auto const chan = channel(*env.current(), alice, bob);
+            BEAST_EXPECT(channelBalance(*env.current(), chan) == XRP(0));
+            BEAST_EXPECT(channelAmount(*env.current(), chan) == XRP(1000));
+
+            // Since `fixPayChanRecipientOwnerDir` is not active, can remove bob
+            rmAccount(env, bob, carol);
+            BEAST_EXPECT(!env.closed()->exists(keylet::account(bob.id())));
+
+            auto chanBal = channelBalance(*env.current(), chan);
+            auto chanAmt = channelAmount(*env.current(), chan);
+            BEAST_EXPECT(chanBal == XRP(0));
+            BEAST_EXPECT(chanAmt == XRP(1000));
+            auto preBob = env.balance(bob);
+            auto const delta = XRP(50);
+            auto reqBal = chanBal + delta;
+            auto authAmt = reqBal + XRP(100);
+            assert(reqBal <= chanAmt);
+
+            {
+                // claim should fail, since bob doesn't exist
+                auto const preAlice = env.balance(alice);
+                env(claim(alice, chan, reqBal, authAmt), ter(tecNO_DST));
+                env.close();
+                BEAST_EXPECT(channelBalance(*env.current(), chan) == chanBal);
+                BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
+                BEAST_EXPECT(env.balance(bob) == preBob);
+                BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops);
+            }
+
+            {
+                // fund should fail, sincebob doesn't exist
+                auto const preAlice = env.balance(alice);
+                env(fund(alice, chan, XRP(1000)), ter(tecNO_DST));
+                env.close();
+                BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops);
+                BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
+            }
+
+            // resurrect bob
+            env(pay(alice, bob, XRP(20)));
+            env.close();
+            BEAST_EXPECT(env.closed()->exists(keylet::account(bob.id())));
+
+            {
+                // alice should be able to claim
+                preBob = env.balance(bob);
+                reqBal = chanBal + delta;
+                authAmt = reqBal + XRP(100);
+                env(claim(alice, chan, reqBal, authAmt));
+                BEAST_EXPECT(channelBalance(*env.current(), chan) == reqBal);
+                BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
+                BEAST_EXPECT(env.balance(bob) == preBob + delta);
+                chanBal = reqBal;
+            }
+
+            {
+                // bob should be able to claim
+                preBob = env.balance(bob);
+                reqBal = chanBal + delta;
+                authAmt = reqBal + XRP(100);
+                auto const sig =
+                    signClaimAuth(alice.pk(), alice.sk(), chan, authAmt);
+                env(claim(bob, chan, reqBal, authAmt, Slice(sig), alice.pk()));
+                BEAST_EXPECT(channelBalance(*env.current(), chan) == reqBal);
+                BEAST_EXPECT(channelAmount(*env.current(), chan) == chanAmt);
+                BEAST_EXPECT(env.balance(bob) == preBob + delta - feeDrops);
+                chanBal = reqBal;
+            }
+
+            {
+                // alice should be able to fund
+                auto const preAlice = env.balance(alice);
+                env(fund(alice, chan, XRP(1000)));
+                BEAST_EXPECT(
+                    env.balance(alice) == preAlice - XRP(1000) - feeDrops);
+                BEAST_EXPECT(
+                    channelAmount(*env.current(), chan) == chanAmt + XRP(1000));
+                chanAmt = chanAmt + XRP(1000);
+            }
+
+            {
+                // Owner closes, will close after settleDelay
+                env(claim(alice, chan), txflags(tfClose));
+                env.close();
+                // settle delay hasn't ellapsed. Channels should exist.
+                BEAST_EXPECT(channelExists(*env.current(), chan));
+                auto const closeTime = env.current()->info().parentCloseTime;
+                auto const minExpiration = closeTime + settleDelay;
+                env.close(minExpiration);
+                env(claim(alice, chan), txflags(tfClose));
+                BEAST_EXPECT(!channelExists(*env.current(), chan));
+            }
+        }
+    }
+
+    void
+    run() override
+    {
+        testSimple();
+        testCancelAfter();
+        testSettleDelay();
+        testExpiration();
+        testCloseDry();
+        testDefaultAmount();
+        testDisallowXRP();
+        testDstTag();
+        testDepositAuth();
+        testMultiple();
+        testRPC();
+        testOptionalFields();
+        testMalformedPK();
+        testMetaAndOwnership();
+        testAccountDelete();
     }
 };
 

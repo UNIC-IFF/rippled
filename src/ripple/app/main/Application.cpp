@@ -19,6 +19,7 @@
 
 #include <ripple/app/main/Application.h>
 #include <ripple/core/DatabaseCon.h>
+#include <ripple/core/Stoppable.h>
 #include <ripple/app/consensus/RCLValidations.h>
 #include <ripple/app/main/DBInit.h>
 #include <ripple/app/main/BasicApp.h>
@@ -62,8 +63,11 @@
 #include <ripple/resource/Fees.h>
 #include <ripple/beast/asio/io_latency_probe.h>
 #include <ripple/beast/core/LexicalCast.h>
+
+#include <boost/algorithm/string/predicate.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/system/error_code.hpp>
+
 #include <condition_variable>
 #include <cstring>
 #include <fstream>
@@ -930,21 +934,31 @@ public:
         if (config_->doImport)
         {
             auto j = logs_->journal("NodeObject");
-            NodeStore::DummyScheduler scheduler;
+            NodeStore::DummyScheduler dummyScheduler;
+            RootStoppable dummyRoot {"DummyRoot"};
             std::unique_ptr <NodeStore::Database> source =
                 NodeStore::Manager::instance().make_Database(
                     "NodeStore.import",
-                    scheduler,
+                    dummyScheduler,
                     0,
-                    *m_jobQueue,
+                    dummyRoot,
                     config_->section(ConfigSection::importNodeDatabase()),
                     j);
 
             JLOG(j.warn()) <<
-                "Node import from '" << source->getName() << "' to '" <<
-                getNodeStore().getName() << "'.";
+                "Starting node import from '" << source->getName() <<
+                "' to '" << getNodeStore().getName() << "'.";
+
+            using namespace std::chrono;
+            auto const start = steady_clock::now();
 
             getNodeStore().import(*source);
+
+            auto const elapsed = duration_cast <seconds>
+                (steady_clock::now() - start);
+            JLOG(j.warn()) <<
+                "Node import from '" << source->getName() <<
+                "' took " << elapsed.count() << " seconds.";
         }
 
         // tune caches
@@ -1556,7 +1570,7 @@ bool ApplicationImp::setup()
         Resource::Charge loadType = Resource::feeReferenceRPC;
         Resource::Consumer c;
         RPC::Context context { journal ("RPCHandler"), jvCommand, *this,
-            loadType, getOPs (), getLedgerMaster(), c, Role::ADMIN };
+            loadType, getOPs (), getLedgerMaster (), c, Role::ADMIN};
 
         Json::Value jvResult;
         RPC::doCommand (context, jvResult);
@@ -1901,7 +1915,7 @@ bool ApplicationImp::loadOldLedger (
                 }
             }
         }
-        else if (ledgerID.empty () || boost::beast::detail::iequals(ledgerID, "latest"))
+        else if (ledgerID.empty () || boost::iequals(ledgerID, "latest"))
         {
             loadLedger = getLastFullLedger ();
         }

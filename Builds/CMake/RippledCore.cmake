@@ -392,6 +392,7 @@ if (unity)
     src/test/unity/crypto_test_unity.cpp
     src/test/unity/json_test_unity.cpp
     src/test/unity/ledger_test_unity.cpp
+    src/test/unity/net_test_unity.cpp
     src/test/unity/nodestore_test_unity.cpp
     src/test/unity/overlay_test_unity.cpp
     src/test/unity/peerfinder_test_unity.cpp
@@ -491,6 +492,7 @@ else ()
     src/ripple/app/tx/impl/CreateCheck.cpp
     src/ripple/app/tx/impl/CreateOffer.cpp
     src/ripple/app/tx/impl/CreateTicket.cpp
+    src/ripple/app/tx/impl/DeleteAccount.cpp
     src/ripple/app/tx/impl/DepositPreauth.cpp
     src/ripple/app/tx/impl/Escrow.cpp
     src/ripple/app/tx/impl/InvariantCheck.cpp
@@ -720,6 +722,7 @@ else ()
        nounity, test sources:
          subdir: app
     #]===============================]
+    src/test/app/AccountDelete_test.cpp
     src/test/app/AccountTxPaging_test.cpp
     src/test/app/AmendmentTable_test.cpp
     src/test/app/Check_test.cpp
@@ -862,6 +865,7 @@ else ()
     src/test/jtx/impl/JSONRPCClient.cpp
     src/test/jtx/impl/ManualTimeKeeper.cpp
     src/test/jtx/impl/WSClient.cpp
+    src/test/jtx/impl/acctdelete.cpp
     src/test/jtx/impl/amount.cpp
     src/test/jtx/impl/balance.cpp
     src/test/jtx/impl/check.cpp
@@ -898,9 +902,13 @@ else ()
     src/test/ledger/Invariants_test.cpp
     src/test/ledger/PaymentSandbox_test.cpp
     src/test/ledger/PendingSaves_test.cpp
-    src/test/ledger/SHAMapV2_test.cpp
     src/test/ledger/SkipList_test.cpp
     src/test/ledger/View_test.cpp
+    #[===============================[
+       nounity, test sources:
+         subdir: net
+    #]===============================]
+    src/test/net/SSLHTTPDownloader_test.cpp
     #[===============================[
        nounity, test sources:
          subdir: nodestore
@@ -978,6 +986,7 @@ else ()
     src/test/rpc/NoRipple_test.cpp
     src/test/rpc/OwnerInfo_test.cpp
     src/test/rpc/Peers_test.cpp
+    src/test/rpc/Roles_test.cpp
     src/test/rpc/RPCCall_test.cpp
     src/test/rpc/RPCOverload_test.cpp
     src/test/rpc/RobustTransaction_test.cpp

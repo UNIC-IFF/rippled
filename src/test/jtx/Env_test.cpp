@@ -202,8 +202,8 @@ public:
         {
             Env env(*this);
             env.fund(n, noripple("alice", gw));
-            BEAST_EXPECT(env.seq("alice") == 1);
-            BEAST_EXPECT(env.seq(gw) == 1);
+            BEAST_EXPECT(env.seq("alice") == 3);
+            BEAST_EXPECT(env.seq(gw) == 3);
         }
 
         // autofill
@@ -749,6 +749,22 @@ public:
         }
     }
 
+    void testExceptionalShutdown()
+    {
+        except(
+            [this]
+            {
+                jtx::Env env {*this,
+                              jtx::envconfig([](std::unique_ptr<Config> cfg)
+                              {
+                                  (*cfg).deprecatedClearSection("port_rpc");
+                                  return cfg;
+                              })};
+            }
+        );
+        pass();
+    }
+
     void
     run() override
     {
@@ -771,6 +787,7 @@ public:
         testResignSigned();
         testSignAndSubmit();
         testFeatures();
+        testExceptionalShutdown();
     }
 };
 
