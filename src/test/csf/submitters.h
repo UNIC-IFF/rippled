@@ -280,6 +280,10 @@ public:
     {
         scheduler_.at(start, [&]() { inject(); });
     }
+    void setNextID(std::uint32_t nextId)
+    {
+        this->nextID_=nextId;
+    }
 };
 
 template <class Distribution, class Generator, class Selector>
@@ -369,6 +373,11 @@ public:
     {
         scheduler_.at(start, [&]() { inject(); });
     }
+    void setNextID(std::uint32_t nextId)
+    {
+        this->nextID_=nextId;
+    }
+  
 };
 
 template <class Distribution, class Generator, class PeerGroup>
