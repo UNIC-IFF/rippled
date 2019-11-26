@@ -446,6 +446,7 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
                                     sim.scheduler,
                                     sim.rng);
 
+        txInjector.setNextID(100000);
         // run simulation for given duration
         heart.start();
         sim.run(simDuration);

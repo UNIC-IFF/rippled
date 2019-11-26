@@ -107,6 +107,10 @@ public:
     {
         scheduler_.at(start, [&]() { submit(); });
     }
+    void setNextID(std::uint32_t nextId)
+    {
+        this->nextID_=nextId;
+    }
 };
 
 template <class Distribution, class Generator, class Selector>
@@ -195,6 +199,10 @@ public:
         : dist_{dist}, stop_{end}, selector_{selector}, scheduler_{s}, g_{g}
     {
         scheduler_.at(start, [&]() { submit(); });
+    }
+    void setNextID(std::uint32_t nextId)
+    {
+        this->nextID_=nextId;
     }
 };
 
