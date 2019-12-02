@@ -40,12 +40,28 @@ public:
     {
     }
 
+    Tx(ID i, bool malicious=False) : id_{i}, malicious_{malicious}
+    {
+    }
+
     ID
     id() const
     {
         return id_;
     }
 
+    bool
+    isMalicious()
+    {
+        return malicious_;
+    }
+
+    void
+    setMalicious(bool mal)
+    {
+        malicious_=mal;
+    }
+    
     bool
     operator<(Tx const& o) const
     {
@@ -60,7 +76,7 @@ public:
 
 private:
     ID id_;
-};
+    bool malicious_;
 
 //!-------------------------------------------------------------------------
 //! All sets of Tx are represented as a flat_set for performance.
