@@ -722,7 +722,7 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         
 
 
-        std::string const defaultArgs = "50 0 18 2 0.1 0.9 0.1";
+        std::string const defaultArgs = "50 1 18 2 0.8 0.91 0.1";
         std::string const args = arg().empty() ? defaultArgs : arg();
         std::stringstream argStream(args);
 
