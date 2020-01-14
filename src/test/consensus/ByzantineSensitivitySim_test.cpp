@@ -56,16 +56,16 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         int const minCNLSize = std::max(int(overlapping_factor * maxCNLSize),  std::max(int(0.25*numCNLs),1));
         int const commonUNLSize = overlapping_factor*maxCNLSize;
 
-        log << "test1"<<std::endl;
+        
 
         BEAST_EXPECT(numPeers >= 1);
         BEAST_EXPECT(numCNLs >= 1);
-        log << "test1"<<std::endl;
+        
         BEAST_EXPECT(1 <= minCNLSize
                 && minCNLSize <= maxCNLSize
                 && minCNLSize >= commonUNLSize
                 && maxCNLSize <= numPeers);
-        log << "test1"<<std::endl;
+        
 
         Sim sim;
         
@@ -84,7 +84,7 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         }
         
 
-        log << "test2"<<std::endl;
+        
 
         // form common UNL
         PeerGroup commonUNL;
@@ -177,7 +177,8 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         }
 
         // Initialize the data collectors
-        TxCollector txCollector;
+        // TxCollector txCollector;
+        TxCollector_Extended txCollector;
         LedgerCollector ledgerCollector;
         auto colls = makeCollectors(txCollector, ledgerCollector);
         sim.collectors.add(colls);
@@ -220,7 +221,7 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
                                     sim.scheduler.now()+ simDuration -quiet,
                                     byzantines,
                                     sim.scheduler,
-                                    sim.rng);
+                                    sim.rng,true);
 
         // run simulation for given duration
         heart.start();
@@ -280,16 +281,16 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         int const minCNLSize = std::max(int(overlapping_factor * maxCNLSize),  std::max(int(0.25*numCNLs),1));
         int const commonUNLSize = overlapping_factor*maxCNLSize;
 
-        log << "test1"<<std::endl;
+        
 
         BEAST_EXPECT(numPeers >= 1);
         BEAST_EXPECT(numCNLs >= 1);
-        log << "test1"<<std::endl;
+        
         BEAST_EXPECT(1 <= minCNLSize
                 && minCNLSize <= maxCNLSize
                 && minCNLSize >= commonUNLSize
                 && maxCNLSize <= numPeers);
-        log << "test1"<<std::endl;
+        
 
         Sim sim;
         
@@ -308,7 +309,7 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         }
         
 
-        log << "test2"<<std::endl;
+        
 
         // form common UNL
         PeerGroup commonUNL;
@@ -401,7 +402,8 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         }
 
         // Initialize the data collectors
-        TxCollector txCollector;
+        // TxCollector txCollector;
+        TxCollector_Extended txCollector;
         LedgerCollector ledgerCollector;
         auto colls = makeCollectors(txCollector, ledgerCollector);
         sim.collectors.add(colls);
@@ -444,7 +446,7 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
                                     sim.scheduler.now()+ simDuration -quiet,
                                     byzantines,
                                     sim.scheduler,
-                                    sim.rng);
+                                    sim.rng,true);
 
         txInjector.setNextID(100000);
         // run simulation for given duration
@@ -518,16 +520,16 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         int const minCNLSize = std::max(int(overlapping_factor * maxCNLSize),  std::max(int(0.25*numCNLs),1));
         int const commonUNLSize = overlapping_factor*maxCNLSize;
 
-        log << "test1"<<std::endl;
+        
 
         BEAST_EXPECT(numPeers >= 1);
         BEAST_EXPECT(numCNLs >= 1);
-        log << "test1"<<std::endl;
+        
         BEAST_EXPECT(1 <= minCNLSize
                 && minCNLSize <= maxCNLSize
                 && minCNLSize >= commonUNLSize
                 && maxCNLSize <= numPeers);
-        log << "test1"<<std::endl;
+        
 
         Sim sim;
         
@@ -546,7 +548,7 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         }
         
 
-        log << "test2"<<std::endl;
+        
 
         // form common UNL
         PeerGroup commonUNL;
@@ -639,7 +641,8 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
         }
 
         // Initialize the data collectors
-        TxCollector txCollector;
+        // TxCollector txCollector;
+        TxCollector_Extended txCollector;
         LedgerCollector ledgerCollector;
         auto colls = makeCollectors(txCollector, ledgerCollector);
         sim.collectors.add(colls);
@@ -673,7 +676,7 @@ class ByzantineSensitivitySim_test : public beast::unit_test::suite
                                     sim.scheduler.now()+ simDuration -quiet,
                                     byzantinePeerSelector,
                                     sim.scheduler,
-                                    sim.rng);
+                                    sim.rng,true);
 
         // run simulation for given duration
         heart.start();
