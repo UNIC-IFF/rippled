@@ -154,6 +154,7 @@ class SybilianSubmitter
     PeerGroup selector_;
     Scheduler & scheduler_;
     Generator & g_;
+    bool malicious;
 
     // Convert generated durations to SimDuration
     static SimDuration
@@ -179,7 +180,7 @@ class SybilianSubmitter
         {
             // (*mptr)->txInjections.emplace(
             //         (*mptr)->lastClosedLedger.seq(),Tx{txid});
-            (*mptr)->submit(Tx{txid});
+            (*mptr)->submit(Tx{txid,malicious});
             advance(mptr,1);
         }
         if (scheduler_.now() < stop_)
@@ -187,6 +188,7 @@ class SybilianSubmitter
             scheduler_.in(asDuration(dist_(g_)), [&]() { submit(); });
         }
     }
+
 
 public:
     SybilianSubmitter(
@@ -197,6 +199,19 @@ public:
         Scheduler & s,
         Generator & g)
         : dist_{dist}, stop_{end}, selector_{selector}, scheduler_{s}, g_{g}
+    {
+        malicious=false;
+        scheduler_.at(start, [&]() { submit(); });
+    }
+    SybilianSubmitter(
+        Distribution dist,
+        SimTime start,
+        SimTime end,
+        PeerGroup & selector,
+        Scheduler & s,
+        Generator & g,
+        bool maliciousTx)
+        : dist_{dist}, stop_{end}, selector_{selector}, scheduler_{s}, g_{g}, malicious{maliciousTx}
     {
         scheduler_.at(start, [&]() { submit(); });
     }
@@ -220,7 +235,20 @@ makeSybilianSubmitter(
             dist, start ,end, sel, s, g);
 }
 
-
+template <class Distribution, class Generator, class PeerGroup>
+SybilianSubmitter<Distribution, Generator, PeerGroup>
+makeSybilianSubmitter(
+    Distribution dist,
+    SimTime start,
+    SimTime end,
+    PeerGroup& sel,
+    Scheduler& s,
+    Generator& g,
+    bool maliciousTx)
+{
+    return SybilianSubmitter<Distribution, Generator, PeerGroup>(
+            dist, start ,end, sel, s, g,maliciousTx);
+}
 
 /** Injects transactions to a specified peer
 
@@ -248,6 +276,7 @@ class Injector
     Selector selector_;
     Scheduler & scheduler_;
     Generator & g_;
+    bool malicious ;
 
     // Convert generated durations to SimDuration
     static SimDuration
@@ -269,7 +298,7 @@ class Injector
     {
         auto mptr=selector_();
         mptr->txInjections.emplace(
-                    mptr->lastClosedLedger.seq(),Tx{nextID_++});
+                    mptr->lastClosedLedger.seq(),Tx{nextID_++,malicious});
         if (scheduler_.now() < stop_)
         {
             scheduler_.in(asDuration(dist_(g_)), [&]() { inject(); });
@@ -286,8 +315,22 @@ public:
         Generator & g)
         : dist_{dist}, stop_{end}, selector_{selector}, scheduler_{s}, g_{g}
     {
+        malicious=false;
         scheduler_.at(start, [&]() { inject(); });
     }
+    Injector(
+        Distribution dist,
+        SimTime start,
+        SimTime end,
+        Selector & selector,
+        Scheduler & s,
+        Generator & g,
+        bool maliciousTx)
+        : dist_{dist}, stop_{end}, selector_{selector}, scheduler_{s}, g_{g}, malicious{maliciousTx}
+    {
+        scheduler_.at(start, [&]() { inject(); });
+    }
+
     void setNextID(std::uint32_t nextId)
     {
         this->nextID_=nextId;
@@ -306,6 +349,21 @@ makeInjector(
 {
     return Injector<Distribution, Generator, Selector>(
             dist, start ,end, sel, s, g);
+}
+
+template <class Distribution, class Generator, class Selector>
+Injector<Distribution, Generator, Selector>
+makeInjector(
+    Distribution dist,
+    SimTime start,
+    SimTime end,
+    Selector& sel,
+    Scheduler& s,
+    Generator& g,
+    bool maliciousTx)
+{
+    return Injector<Distribution, Generator, Selector>(
+            dist, start ,end, sel, s, g,maliciousTx);
 }
 
 
@@ -335,6 +393,7 @@ class SybilianInjector
     PeerGroup selector_;
     Scheduler & scheduler_;
     Generator & g_;
+    bool malicious ;
 
     // Convert generated durations to SimDuration
     static SimDuration
@@ -359,7 +418,7 @@ class SybilianInjector
         while (mptr!=selector_.end())
         {
             (*mptr)->txInjections.emplace(
-                    (*mptr)->lastClosedLedger.seq(),Tx{txid});
+                    (*mptr)->lastClosedLedger.seq(),Tx{txid,malicious});
 
             advance(mptr,1);
         }
@@ -379,8 +438,22 @@ public:
         Generator & g)
         : dist_{dist}, stop_{end}, selector_{selector}, scheduler_{s}, g_{g}
     {
+        malicious=false;
         scheduler_.at(start, [&]() { inject(); });
     }
+    SybilianInjector(
+        Distribution dist,
+        SimTime start,
+        SimTime end,
+        PeerGroup & selector,
+        Scheduler & s,
+        Generator & g,
+        bool maliciousTx)
+        : dist_{dist}, stop_{end}, selector_{selector}, scheduler_{s}, g_{g}, malicious{maliciousTx}
+    {
+        scheduler_.at(start, [&]() { inject(); });
+    }
+
     void setNextID(std::uint32_t nextId)
     {
         this->nextID_=nextId;
@@ -400,6 +473,21 @@ makeSybilianInjector(
 {
     return SybilianInjector<Distribution, Generator, PeerGroup>(
             dist, start ,end, sel, s, g);
+}
+
+template <class Distribution, class Generator, class PeerGroup>
+SybilianInjector<Distribution, Generator, PeerGroup>
+makeSybilianInjector(
+    Distribution dist,
+    SimTime start,
+    SimTime end,
+    PeerGroup& sel,
+    Scheduler& s,
+    Generator& g,
+    bool maliciousTx)
+{
+    return SybilianInjector<Distribution, Generator, PeerGroup>(
+            dist, start ,end, sel, s, g, maliciousTx);
 }
 
 

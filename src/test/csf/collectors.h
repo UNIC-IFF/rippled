@@ -363,6 +363,8 @@ struct TxCollector
         log << std::setfill(' ');
     }
 
+
+    
     template <class T, class Tag>
     void
     csv(SimDuration simDuration, T& log, Tag const& tag, bool printHeaders = false)
@@ -394,10 +396,9 @@ struct TxCollector
                 << "txLatencySubmitToAccept90Pctl" << ","
                 << "txLatencySubmitToValidatet10Pctl" << ","
                 << "txLatencySubmitToValidatet50Pctl" << ","
-                << "txLatencySubmitToValidatet90Pctl"
+                << "txLatencySubmitToValidatet90Pctl" << ","
                 << std::endl;
         }
-
 
         log << tag << ","
             // txNumSubmitted
@@ -422,12 +423,398 @@ struct TxCollector
             << std::setprecision(2) << fmtS(submitToAccept.percentile(0.5f)) << ","
             // txLatencySubmitToAccept90Pctl
             << std::setprecision(2) << fmtS(submitToAccept.percentile(0.9f)) << ","
+
             // txLatencySubmitToValidate10Pctl
             << std::setprecision(2) << fmtS(submitToValidate.percentile(0.1f)) << ","
             // txLatencySubmitToValidate50Pctl
             << std::setprecision(2) << fmtS(submitToValidate.percentile(0.5f)) << ","
             // txLatencySubmitToValidate90Pctl
             << std::setprecision(2) << fmtS(submitToValidate.percentile(0.9f)) << ","
+
+            << std::endl;
+    }
+};
+
+/** Tracks the submission -> accepted -> validated evolution of transactions for normal and malicious.
+
+    This collector tracks transactions through the network by monitoring the
+    *first* time the transaction is seen by any node in the network, or
+    seen by any node's accepted or fully validated ledger.
+
+    If transactions submitted to the network do not have unique IDs, this
+    collector will not track subsequent submissions.
+*/
+struct TxCollector_Extended
+{
+    // Counts
+    std::size_t submitted{0};
+    std::size_t accepted{0};
+    std::size_t validated{0};
+    
+    std::size_t malicious_submitted{0};
+    std::size_t malicious_accepted{0};
+    std::size_t malicious_validated{0};
+    
+    struct Tracker
+    {
+        Tx tx;
+        SimTime submitted;
+        boost::optional<SimTime> accepted;
+        boost::optional<SimTime> validated;
+
+        Tracker(Tx tx_, SimTime submitted_) : tx{tx_}, submitted{submitted_}
+        {
+        }
+    };
+
+    hash_map<Tx::ID, Tracker> txs;
+
+    using Hist = Histogram<SimTime::duration>;
+    Hist submitToAccept;
+    Hist submitToValidate;
+
+    Hist malicious_submitToAccept;
+    Hist malicious_submitToValidate;
+
+    // Ignore most events by default
+    template <class E>
+    void
+    on(PeerID, SimTime when, E const& e)
+    {
+    }
+
+    void
+    on(PeerID who, SimTime when, SubmitTx const& e)
+    {
+
+        // save first time it was seen
+        if (txs.emplace(e.tx.id(), Tracker{e.tx, when}).second)
+        {
+            submitted++;
+            if (e.tx.isMalicious())
+            {
+                malicious_submitted++;
+            }
+        }
+    }
+
+    void
+    on(PeerID who, SimTime when, AcceptLedger const& e)
+    {
+        for (auto const& tx : e.ledger.txs())
+        {
+            auto it = txs.find(tx.id());
+            if (it != txs.end() && !it->second.accepted)
+            {
+                Tracker& tracker = it->second;
+                tracker.accepted = when;
+                accepted++;
+                
+                submitToAccept.insert(*tracker.accepted - tracker.submitted);
+                if (tracker.tx.isMalicious())
+                {
+                    malicious_accepted++;
+                    malicious_submitToAccept.insert(*tracker.accepted - tracker.submitted);
+                }
+            }
+        }
+    }
+
+    void
+    on(PeerID who, SimTime when, FullyValidateLedger const& e)
+    {
+        for (auto const& tx : e.ledger.txs())
+        {
+            auto it = txs.find(tx.id());
+            if (it != txs.end() && !it->second.validated)
+            {
+                Tracker& tracker = it->second;
+                // Should only validated a previously accepted Tx
+                assert(tracker.accepted);
+
+                tracker.validated = when;
+                validated++;
+                submitToValidate.insert(*tracker.validated - tracker.submitted);
+
+                if (tracker.tx.isMalicious())
+                {
+                    malicious_validated++;
+                    malicious_submitToValidate.insert(*tracker.validated - tracker.submitted);
+                }
+            }
+        }
+    }
+
+    // Returns the number of txs which were never accepted
+    std::size_t
+    orphaned() const
+    {
+        return std::count_if(txs.begin(), txs.end(), [](auto const& it) {
+            return !it.second.accepted;
+        });
+    }
+
+    // Returns the number of txs which were never validated
+    std::size_t
+    unvalidated() const
+    {
+        return std::count_if(txs.begin(), txs.end(), [](auto const& it) {
+            return !it.second.validated;
+        });
+    }
+
+    // Returns the number of txs which were never accepted
+    std::size_t
+    malicious_orphaned() const
+    {
+        return std::count_if(txs.begin(), txs.end(), [](auto const& it) {
+            return (!it.second.accepted && it.second.tx.isMalicious());
+        });
+    }
+
+    // Returns the number of txs which were never validated
+    std::size_t
+    malicious_unvalidated() const
+    {
+        return std::count_if(txs.begin(), txs.end(), [](auto const& it) {
+            return (!it.second.validated && it.second.tx.isMalicious());
+        });
+    }
+
+    template <class T>
+    void
+    report(SimDuration simDuration, T& log, bool printBreakline = false)
+    {
+        using namespace std::chrono;
+        auto perSec = [&simDuration](std::size_t count)
+        {
+            return double(count)/duration_cast<seconds>(simDuration).count();
+        };
+
+        auto fmtS = [](SimDuration dur)
+        {
+            return duration_cast<duration<float>>(dur).count();
+        };
+
+        if (printBreakline)
+        {
+            log << std::setw(21) << std::setfill('-') << "-" <<  "-"
+                << std::setw(7) << std::setfill('-') << "-" <<  "-"
+                << std::setw(7) << std::setfill('-') << "-" <<  "-"
+                << std::setw(36) << std::setfill('-') << "-"
+                << std::endl;
+            log << std::setfill(' ');
+        }
+
+        log << std::left
+            << std::setw(21) << "TxStats" <<  "|"
+            << std::setw(7) << "Count" <<  "|"
+            << std::setw(7) << "Per Sec" <<  "|"
+            << std::setw(15) << "Latency (sec)"
+            << std::right
+            << std::setw(7) << "10-ile"
+            << std::setw(7) << "50-ile"
+            << std::setw(7) << "90-ile"
+            << std::left
+            << std::endl;
+
+        log << std::setw(21) << std::setfill('-') << "-" <<  "|"
+            << std::setw(7) << std::setfill('-') << "-" <<  "|"
+            << std::setw(7) << std::setfill('-') << "-" <<  "|"
+            << std::setw(36) << std::setfill('-') << "-"
+            << std::endl;
+        log << std::setfill(' ');
+
+        log << std::left <<
+            std::setw(21) << "Submit " << "|"
+            << std::right
+            << std::setw(7) << submitted << "|"
+            << std::setw(7) << std::setprecision(2) << perSec(submitted) << "|"
+            << std::setw(36) << "" << std::endl;
+
+        log << std::left
+            << std::setw(21) << "Accept " << "|"
+            << std::right
+            << std::setw(7) << accepted << "|"
+            << std::setw(7) << std::setprecision(2) << perSec(accepted) << "|"
+            << std::setw(15) << std::left << "From Submit" << std::right
+            << std::setw(7) << std::setprecision(2) << fmtS(submitToAccept.percentile(0.1f))
+            << std::setw(7) << std::setprecision(2) << fmtS(submitToAccept.percentile(0.5f))
+            << std::setw(7) << std::setprecision(2) << fmtS(submitToAccept.percentile(0.9f))
+            << std::endl;
+
+        log << std::left
+            << std::setw(21) << "Validate " << "|"
+            << std::right
+            << std::setw(7) << validated << "|"
+            << std::setw(7) << std::setprecision(2) << perSec(validated) << "|"
+            << std::setw(15) << std::left << "From Submit" << std::right
+            << std::setw(7) << std::setprecision(2) << fmtS(submitToValidate.percentile(0.1f))
+            << std::setw(7) << std::setprecision(2) << fmtS(submitToValidate.percentile(0.5f))
+            << std::setw(7) << std::setprecision(2) << fmtS(submitToValidate.percentile(0.9f))
+            << std::endl;
+
+        log << std::left
+            << std::setw(21) << "Orphan" << "|"
+            << std::right
+            << std::setw(7) << orphaned() << "|"
+            << std::setw(7) << "" << "|"
+            << std::setw(36) << std::endl;
+
+        log << std::left
+            << std::setw(21) << "Unvalidated" << "|"
+            << std::right
+            << std::setw(7) << unvalidated() << "|"
+            << std::setw(7) << "" << "|"
+            << std::setw(43) << std::endl;
+
+        // malicious Tx reporting
+
+
+                log << std::left <<
+            std::setw(21) << "Submit Malicious" << "|"
+            << std::right
+            << std::setw(7) << malicious_submitted << "|"
+            << std::setw(7) << std::setprecision(2) << perSec(malicious_submitted) << "|"
+            << std::setw(36) << "" << std::endl;
+
+        log << std::left
+            << std::setw(21) << "Accept Malicious" << "|"
+            << std::right
+            << std::setw(7) << malicious_accepted << "|"
+            << std::setw(7) << std::setprecision(2) << perSec(malicious_accepted) << "|"
+            << std::setw(15) << std::left << "From Submit" << std::right
+            << std::setw(7) << std::setprecision(2) << fmtS(malicious_submitToAccept.percentile(0.1f))
+            << std::setw(7) << std::setprecision(2) << fmtS(malicious_submitToAccept.percentile(0.5f))
+            << std::setw(7) << std::setprecision(2) << fmtS(malicious_submitToAccept.percentile(0.9f))
+            << std::endl;
+
+        log << std::left
+            << std::setw(21) << "Validate Malicious " << "|"
+            << std::right
+            << std::setw(7) << malicious_validated << "|"
+            << std::setw(7) << std::setprecision(2) << perSec(malicious_validated) << "|"
+            << std::setw(15) << std::left << "From Submit" << std::right
+            << std::setw(7) << std::setprecision(2) << fmtS(malicious_submitToValidate.percentile(0.1f))
+            << std::setw(7) << std::setprecision(2) << fmtS(malicious_submitToValidate.percentile(0.5f))
+            << std::setw(7) << std::setprecision(2) << fmtS(malicious_submitToValidate.percentile(0.9f))
+            << std::endl;
+
+        log << std::left
+            << std::setw(21) << "Orphan Malicious" << "|"
+            << std::right
+            << std::setw(7) << malicious_orphaned() << "|"
+            << std::setw(7) << "" << "|"
+            << std::setw(36) << std::endl;
+
+        log << std::left
+            << std::setw(21) << "Unvalidated Malicious" << "|"
+            << std::right
+            << std::setw(7) << malicious_unvalidated() << "|"
+            << std::setw(7) << "" << "|"
+            << std::setw(43) << std::endl;
+
+        log << std::setw(21) << std::setfill('-') << "-" <<  "-"
+            << std::setw(7) << std::setfill('-') << "-" <<  "-"
+            << std::setw(7) << std::setfill('-') << "-" <<  "-"
+            << std::setw(36) << std::setfill('-') << "-"
+            << std::endl;
+        log << std::setfill(' ');
+    }
+
+    template <class T, class Tag>
+    void
+    csv(SimDuration simDuration, T& log, Tag const& tag, bool printHeaders = false)
+    {
+        using namespace std::chrono;
+        auto perSec = [&simDuration](std::size_t count)
+        {
+            return double(count)/duration_cast<seconds>(simDuration).count();
+        };
+
+        auto fmtS = [](SimDuration dur)
+        {
+            return duration_cast<duration<float>>(dur).count();
+        };
+
+        if(printHeaders)
+        {
+            log << "tag" << ","
+                << "txNumSubmitted" << ","
+                << "txNumMaliciousSubmitted" << ","
+                << "txNumAccepted" << ","
+                << "txNumMaliciousAccepted" << ","
+                << "txNumValidated" << ","
+                << "txMaliciousNumValidated" << ","
+                << "txNumOrphaned" << ","
+                << "txMaliciousNumOrphaned" << ","
+                << "txUnvalidated" << ","
+                << "txMaliciousUnvalidated" << ","
+                << "txRateSumbitted" << ","<< "txRateMaliciousSumbitted" << ","
+                << "txRateAccepted" << ","<< "txRateMaliciousAccepted" << ","
+                << "txRateValidated" << ","<< "txRateMaliciousValidated" << ","
+                << "txLatencySubmitToAccept10Pctl" << ","
+                << "txLatencySubmitToAccept50Pctl" << ","
+                << "txLatencySubmitToAccept90Pctl" << ","
+                << "txLatencyMaliciousSubmitToAccept10Pctl" << ","
+                << "txLatencyMaliciousSubmitToAccept50Pctl" << ","
+                << "txLatencyMaliciousSubmitToAccept90Pctl" << ","
+                << "txLatencySubmitToValidatet10Pctl" << ","
+                << "txLatencySubmitToValidatet50Pctl" << ","
+                << "txLatencySubmitToValidatet90Pctl" << ","
+                << "txLatencyMaliciousSubmitToValidatet10Pctl" << ","
+                << "txLatencyMaliciousSubmitToValidatet50Pctl" << ","
+                << "txLatencyMaliciousSubmitToValidatet90Pctl"
+                << std::endl;
+        }
+
+
+        log << tag << ","
+            // txNumSubmitted
+            << submitted << "," << malicious_submitted << ","
+            // txNumAccepted
+            << accepted << ","<< malicious_accepted << ","
+            // txNumValidated
+            << validated << ","<< malicious_validated << ","
+            // txNumOrphaned
+            << orphaned() << ","<< malicious_orphaned() << ","
+            // txNumUnvalidated
+            << unvalidated() << ","<< malicious_unvalidated() << ","
+            // txRateSubmitted
+            << std::setprecision(2) << perSec(submitted) << ","<< std::setprecision(2) << perSec(malicious_submitted) << ","
+            // txRateAccepted
+            << std::setprecision(2) << perSec(accepted) << ","<< std::setprecision(2) << perSec(malicious_accepted) << ","
+            // txRateValidated
+            << std::setprecision(2) << perSec(validated) << ","<< std::setprecision(2) << perSec(malicious_validated) << ","
+            // txLatencySubmitToAccept10Pctl
+            << std::setprecision(2) << fmtS(submitToAccept.percentile(0.1f)) << ","
+            // txLatencySubmitToAccept50Pctl
+            << std::setprecision(2) << fmtS(submitToAccept.percentile(0.5f)) << ","
+            // txLatencySubmitToAccept90Pctl
+            << std::setprecision(2) << fmtS(submitToAccept.percentile(0.9f)) << ","
+
+            // txLatencyMaliciousSubmitToAccept10Pctl
+            << std::setprecision(2) << fmtS(malicious_submitToAccept.percentile(0.1f)) << ","
+            // txLatencyMaliciousSubmitToAccept50Pctl
+            << std::setprecision(2) << fmtS(malicious_submitToAccept.percentile(0.5f)) << ","
+            // txLatencyMaliciousSubmitToAccept90Pctl
+            << std::setprecision(2) << fmtS(malicious_submitToAccept.percentile(0.9f)) << ","
+
+
+            // txLatencySubmitToValidate10Pctl
+            << std::setprecision(2) << fmtS(submitToValidate.percentile(0.1f)) << ","
+            // txLatencySubmitToValidate50Pctl
+            << std::setprecision(2) << fmtS(submitToValidate.percentile(0.5f)) << ","
+            // txLatencySubmitToValidate90Pctl
+            << std::setprecision(2) << fmtS(submitToValidate.percentile(0.9f)) << ","
+
+            // txLatencyMaliciousSubmitToValidate10Pctl
+            << std::setprecision(2) << fmtS(malicious_submitToValidate.percentile(0.1f)) << ","
+            // txLatencyMaliciousSubmitToValidate50Pctl
+            << std::setprecision(2) << fmtS(malicious_submitToValidate.percentile(0.5f)) << ","
+            // txLatencyMaliciousSubmitToValidate90Pctl
+            << std::setprecision(2) << fmtS(malicious_submitToValidate.percentile(0.9f)) << ","
+
             << std::endl;
     }
 };

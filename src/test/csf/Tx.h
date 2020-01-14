@@ -36,12 +36,24 @@ class Tx
 public:
     using ID = std::uint32_t;
 
-    Tx(ID i) : id_{i}
+    Tx(ID i) : id_{i}, malicious_{false}
     {
     }
 
-    Tx(ID i, bool malicious=False) : id_{i}, malicious_{malicious}
+    Tx(ID i, bool malicious) : id_{i}, malicious_{malicious}
     {
+    }
+
+    // Initializer list constructor
+    Tx(std::initializer_list<std::uint32_t> init)
+    {
+        assert((init.size()<1) && (init.size()>2));
+        auto fel=init.begin();
+        id_=*fel;
+        ++fel;
+        assert(fel!=init.end());
+        malicious_=*fel;
+
     }
 
     ID
@@ -51,7 +63,7 @@ public:
     }
 
     bool
-    isMalicious()
+    isMalicious() const
     {
         return malicious_;
     }
@@ -76,8 +88,9 @@ public:
 
 private:
     ID id_;
-    bool malicious_;
+    bool malicious_=false;
 
+};
 //!-------------------------------------------------------------------------
 //! All sets of Tx are represented as a flat_set for performance.
 using TxSetType = boost::container::flat_set<Tx>;
@@ -194,7 +207,7 @@ private:
 inline std::ostream&
 operator<<(std::ostream& o, const Tx& t)
 {
-    return o << t.id();
+    return o << t.id() << t.isMalicious();
 }
 
 template <class T>
